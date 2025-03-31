@@ -6,23 +6,26 @@ import ast
 import re
 import shlex
 from dataclasses import dataclass, field
-from functools import cache
+
+# from functools import cache
 from gettext import gettext, translation
 from os.path import expanduser
 from subprocess import Popen
-from typing import Optional
+from typing import Optional, List, Set
 from urllib.parse import unquote, urlparse
 
 from gi import get_required_version, require_version
 
-API_VERSION: str
-if (API_VERSION := get_required_version("Nautilus")) is not None:
+API_VERSION = get_required_version("Nautilus")
+api_version_caja = get_required_version("Caja")
+if API_VERSION is not None:
     try:
         require_version("Gtk", "4.0")
     except ValueError:
         require_version("Gtk", "3.0")
     from gi.repository import Nautilus as FileManager
-elif (API_VERSION := get_required_version("Caja")) is not None:
+elif api_version_caja is not None:
+    API_VERSION = api_version_caja
     require_version("Gtk", "3.0")
     from gi.repository import Caja as FileManager
 else:
@@ -36,10 +39,10 @@ class Terminal:
     """Data class representing a terminal configuration."""
 
     name: str
-    workdir_arguments: Optional[list[str]] = None
-    new_tab_arguments: Optional[list[str]] = None
-    new_window_arguments: Optional[list[str]] = None
-    command_arguments: list[str] = field(default_factory=lambda: ["-e"])
+    workdir_arguments: Optional[List[str]] = None
+    new_tab_arguments: Optional[List[str]] = None
+    new_window_arguments: Optional[List[str]] = None
+    command_arguments: List[str] = field(default_factory=lambda: ["-e"])
     flatpak_package: Optional[str] = None
 
 
@@ -61,11 +64,6 @@ TERMINALS = {
         command_arguments=["-c"],
         flatpak_package="com.raggesilver.BlackBox",
     ),
-    "blackbox-terminal": Terminal(
-        "Black Box",
-        workdir_arguments=["--working-directory"],
-        command_arguments=["-c"],
-    ),
     "bobcat": Terminal(
         "Bobcat",
         workdir_arguments=["--working-dir"],
@@ -79,11 +77,6 @@ TERMINALS = {
         flatpak_package="org.contourterminal.Contour",
     ),
     "deepin-terminal": Terminal("Deepin Terminal"),
-    "ddterm": Terminal(
-        "Drop down Terminal extension",
-        workdir_arguments=["--working-directory"],
-        flatpak_package="com.github.amezin.ddterm",
-    ),
     "foot": Terminal("Foot"),
     "footclient": Terminal("FootClient"),
     "ghostty": Terminal("Ghostty"),
@@ -142,7 +135,7 @@ TERMINALS = {
 FLATPAK_PARMS = ["off", "system", "user"]
 
 terminal = "gnome-terminal"
-terminal_cmd: list[str] = None  # type: ignore
+terminal_cmd: List[str] = None  # type: ignore
 terminal_data: Terminal = TERMINALS["gnome-terminal"]
 new_tab = False
 flatpak = FLATPAK_PARMS[0]
@@ -184,20 +177,21 @@ def read_os_release():
             continue
 
 
-@cache
-def distro_id() -> set[str]:
+# @cache
+def distro_id() -> Set[str]:
     """get the set of distribution ids"""
     try:
         os_release = dict(read_os_release())
     except OSError:
         return set(["unknown"])
     ids = [os_release["ID"]]
-    if id_like := os_release.get("ID_LIKE"):
+    id_like = os_release.get("ID_LIKE")
+    if id_like:
         ids.extend(id_like.split(" "))
     return set(ids)
 
 
-def parse_custom_command(command: str, data: str | list[str]) -> list[str]:
+def parse_custom_command(command: str, data) -> List[str]:
     """Substitute every '%s' in the command with data and split it into arguments"""
     if isinstance(data, str):
         data = [data]
@@ -205,10 +199,10 @@ def parse_custom_command(command: str, data: str | list[str]) -> list[str]:
     return shlex.split(command.replace("%s", shlex.join(data)))
 
 
-def run_command_in_terminal(command: list[str], *, cwd: str | None = None):
+def run_command_in_terminal(command: List[str], *, cwd=None):
     if terminal == "custom":
         cmd = parse_custom_command(custom_remote_command, command)
-    else:
+        # else:
         cmd = terminal_cmd.copy()
         if cwd and terminal_data.workdir_arguments:
             cmd.extend(terminal_data.workdir_arguments)
@@ -257,7 +251,7 @@ def open_local_terminal_in_uri(uri: str):
     if terminal == "warp":
         # Force new_tab to be considered even without traditional tab arguments
         Popen(  # pylint: disable=consider-using-with
-            ["xdg-open", f"warp://action/new_{"tab" if new_tab else "window"}?path={result.path}"]
+            ["xdg-open", f"warp://action/new_{'tab' if new_tab else 'window'}?path={result.path}"]
         )
         return
 
@@ -279,9 +273,7 @@ def executable_menu_item_id(*, remote: bool):
     return f"OpenTerminal::execute{'_remote_' if remote else '_file_'}item"
 
 
-def get_directory_menu_items(
-    file: FileManager.FileInfo, callback, *, foreground: bool, terminal_name: str | None = None
-):
+def get_directory_menu_items(file: FileManager.FileInfo, callback, *, foreground: bool, terminal_name=None):
     items = []
     remote = file.get_uri_scheme() in REMOTE_URI_SCHEME
     terminal_name = terminal_name or terminal_data.name
@@ -333,7 +325,7 @@ def get_directory_menu_items(
     return items
 
 
-def get_executable_menu_items(file: FileManager.FileInfo, callback, *, terminal_name: str | None = None):
+def get_executable_menu_items(file: FileManager.FileInfo, callback, *, terminal_name=None):
     items = []
     remote = file.get_uri_scheme() in REMOTE_URI_SCHEME
     terminal_name = terminal_name or terminal_data.name
